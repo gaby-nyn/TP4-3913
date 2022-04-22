@@ -29,15 +29,16 @@ public class Main {
         ArrayList<String> idVersionList = new ArrayList<>();
         ArrayList<Integer> nbClassList = new ArrayList<>();
         ArrayList<Float> avgWmcList = new ArrayList<>();
+        ArrayList<Float> avgBcList = new ArrayList<>();
         Metric metric = new Metric(directory, link);
-        metric.getData(idVersionList, nbClassList, avgWmcList);
+        metric.getData(idVersionList, nbClassList, avgWmcList, avgBcList);
 
         // Crée lignes de données pour fichier csv
         List<String[]> ligneDonnees = new ArrayList<>();
-        ligneDonnees.add(new String[] {"id_version", "NC", "mWMC"});
+        ligneDonnees.add(new String[] {"id_version", "NC", "mWMC", "mBC"});
         int counter = 0;
         while (counter < idVersionList.size()) {
-            ligneDonnees.add(new String[] {idVersionList.get(counter), nbClassList.get(counter).toString(), String.format("%2.04f", avgWmcList.get(counter))});
+            ligneDonnees.add(new String[] {idVersionList.get(counter), nbClassList.get(counter).toString(), String.format("%2.04f", avgWmcList.get(counter)), String.format("%2.04f", avgBcList.get(counter))});
             counter++;
         }
 

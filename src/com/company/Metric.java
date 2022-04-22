@@ -1,9 +1,13 @@
 package com.company;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.stream.Stream;
 
 public class Metric {
     private String link;
@@ -16,7 +20,7 @@ public class Metric {
         this.link = link;
     }
 
-    public void getData(ArrayList<String> idVersionList, ArrayList<Integer> nbClassList, ArrayList<Float> avgWmcList) throws IOException, InterruptedException {
+    public void getData(ArrayList<String> idVersionList, ArrayList<Integer> nbClassList, ArrayList<Float> avgWmcList, ArrayList<Float> avgBcList) throws IOException, InterruptedException {
         // Cloner à local repository
         gitClone();
 
@@ -29,6 +33,9 @@ public class Metric {
 
         // Avoir moyenne wmc par version
         getWmcAverage(avgWmcList, idVersionList);
+
+        // Avoir moyenne bc par version
+        getBcAverage(avgBcList, idVersionList);
 
     }
 
@@ -105,13 +112,12 @@ public class Metric {
     }
 
     public void getWmcAverage(ArrayList<Float> avgWmcList, ArrayList<String> idVersionList) throws IOException {
-        // Compte nombre de classe par commit
         File[] files = directory.toFile().listFiles();
         Path cloneDirectory = files[0].toPath();
         ArrayList<File> filesList = new ArrayList<>();
         for (String s : idVersionList) {
-            ProcessBuilder gitReset = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
-            Process processGitReset = gitReset.start();
+            ProcessBuilder gitWmcAvg = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
+            Process processGitWmcAvg = gitWmcAvg.start();
 
             getFichiers(dirToFile, filesList);
 
@@ -125,6 +131,33 @@ public class Metric {
                 average += i;
             }
             avgWmcList.add(average / complexityList.size());
+            processGitWmcAvg.destroy();
+        }
+    }
+
+    public void getBcAverage(ArrayList<Float> avgBcList, ArrayList<String> idVersionList) throws IOException {
+        // Compte nombre de classe par commit
+        File[] files = directory.toFile().listFiles();
+        Path cloneDirectory = files[0].toPath();
+        ArrayList<File> filesList = new ArrayList<>();
+        for (String s : idVersionList) {
+            ProcessBuilder gitReset = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
+            Process processGitReset = gitReset.start();
+
+            getFichiers(dirToFile, filesList);
+
+            ArrayList<Float> bcList = new ArrayList<>();
+            for (File f : filesList) {
+                float dc = (float) getCloc(f.getAbsolutePath()) / getLoc(f.getAbsolutePath());
+                float wmc = (float) getWmc(f.getAbsolutePath());
+                bcList.add(dc/wmc);
+            }
+
+            float average = 0;
+            for (float i : bcList) {
+                average += i;
+            }
+            avgBcList.add(average / bcList.size());
             processGitReset.destroy();
         }
     }
@@ -213,6 +246,66 @@ public class Metric {
         return arete - noeud + 2;
     }
 
+    /**
+     * getCloc sert à compter le nombre de ligne de commentaire dans le fichier.
+     *
+     * @param chemin est la valeur/chemin du fichier a valider
+     * @return retourne le nombre de ligne dans le fichier
+     */
+    public int getCloc(String chemin) {
+        String ligne = "";
+        int nombreLignesCommentaire = 0;
+        File fichierCible = new File(chemin);
+
+        //Vérifier les séparateurs de commentaires et calculer le nombre de ligne
+        try {
+            BufferedReader br = new BufferedReader(new FileReader(fichierCible));
+            while ((ligne = br.readLine()) != null) {
+                if (ligne.contains("//")) {
+                    nombreLignesCommentaire++;
+                } else if (ligne.contains("/*")) {
+                    while (!ligne.contains("*/") && !(ligne = br.readLine()).contains("*/")) {
+                        nombreLignesCommentaire++;
+                    }
+                } else if (ligne.contains("/**")) {
+                    while (!ligne.contains("*/") && !(ligne = br.readLine()).contains("*/")) {
+                        nombreLignesCommentaire++;
+                    }
+                }
+            }
+            br.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return 0;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return 0;
+        }
+        return nombreLignesCommentaire;
+    }
+
+    /**
+     * getLoc est utilisée pour compter le nombre de ligne de code dans un fichier et retourne ce nombre.
+     *
+     * @param chemin est la valeur/chemin du fichier a valider
+     * @return retourne le nombre de ligne dans le fichier
+     */
+    public int getLoc(String chemin) {
+        int nombreLignesCode = 0;
+        File fichierCible = new File(chemin);
+        Path pathChemin = Paths.get(fichierCible.getAbsolutePath());
+
+        //Compter le nombre de ligne dans le fichier ou retourner 0 si erreur
+        try {
+            Stream<String> stream = Files.lines(pathChemin, StandardCharsets.ISO_8859_1);
+            nombreLignesCode += stream.count();
+            stream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return 0;
+        }
+        return nombreLignesCode;
+    }
 
     /**
      * Méthode pour aller compter tous les fichiers dans le directory donnée.
