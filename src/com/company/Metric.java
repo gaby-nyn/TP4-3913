@@ -3,6 +3,7 @@ package com.company;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -12,11 +13,9 @@ import java.util.stream.Stream;
 public class Metric {
     private String link;
     private Path directory;
-    private File dirToFile;
 
     public Metric(Path directory, String link) {
         this.directory = directory;
-        this.dirToFile = directory.toFile();
         this.link = link;
     }
 
@@ -31,11 +30,8 @@ public class Metric {
         // Avoir nombre de classes
         getNbClasse(nbClassList, idVersionList);
 
-        // Avoir moyenne wmc par version
-        getWmcAverage(avgWmcList, idVersionList);
-
-        // Avoir moyenne bc par version
-        getBcAverage(avgBcList, idVersionList);
+        // Avoir moyennes par version
+        getAverages(avgWmcList, idVersionList, avgBcList);
 
     }
 
@@ -43,23 +39,18 @@ public class Metric {
         // Clone projet cible dans repo local
         ProcessBuilder gitClone = new ProcessBuilder().command("git", "clone", link).directory(directory.toFile());
         Process process = gitClone.start();
-        try{
+        process.waitFor();
             System.out.println("Processing data, this might take a while.");
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new InterruptedException("Wait interrupted.");
-        }
         process.destroy();
     }
 
-    public int gitCount() throws IOException {
+    public int gitCount() throws IOException, InterruptedException {
         // Compte le nombre de commits
         File[] files = directory.toFile().listFiles();
         Path cloneDirectory = files[0].toPath();
-        String temp;
         ProcessBuilder gitCount = new ProcessBuilder().command("git", "rev-list","--count", "master").directory(cloneDirectory.toFile());
         Process processGitCount = gitCount.start();
+        processGitCount.waitFor();
         BufferedReader stdInput = new BufferedReader(new InputStreamReader(processGitCount.getInputStream()));
         int nbCommit;
         try {
@@ -72,7 +63,7 @@ public class Metric {
         return nbCommit;
     }
 
-    public void getIdVersions(ArrayList<String> idVersionList, int nbCommit) throws IOException {
+    public void getIdVersions(ArrayList<String> idVersionList, int nbCommit) throws IOException, InterruptedException {
         // Prend les IDs du repo cible
         File[] files = directory.toFile().listFiles();
         Path cloneDirectory = files[0].toPath();
@@ -99,31 +90,46 @@ public class Metric {
         processRevList.destroy();
     }
 
-    public void getNbClasse(ArrayList<Integer> nbClassList, ArrayList<String> idVersionList) throws IOException {
+    public void getNbClasse(ArrayList<Integer> nbClassList, ArrayList<String> idVersionList) throws IOException, InterruptedException {
         // Compte nombre de classe par commit
         File[] files = directory.toFile().listFiles();
         Path cloneDirectory = files[0].toPath();
         for (String s : idVersionList) {
-            ProcessBuilder gitReset = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
+            ProcessBuilder gitReset = new ProcessBuilder().command("git", "reset","--hard", s).directory(cloneDirectory.toFile());
             Process processGitReset = gitReset.start();
+            processGitReset.waitFor();
             nbClassList.add(getFichiersCount(cloneDirectory.toFile()));
             processGitReset.destroy();
         }
     }
 
-    public void getWmcAverage(ArrayList<Float> avgWmcList, ArrayList<String> idVersionList) throws IOException {
+    public void getAverages(ArrayList<Float> avgWmcList, ArrayList<String> idVersionList, ArrayList<Float> avgBcList) throws IOException, InterruptedException {
         File[] files = directory.toFile().listFiles();
         Path cloneDirectory = files[0].toPath();
-        ArrayList<File> filesList = new ArrayList<>();
         for (String s : idVersionList) {
-            ProcessBuilder gitWmcAvg = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
+            ArrayList<File> filesList = new ArrayList<>();
+            ProcessBuilder gitWmcAvg = new ProcessBuilder().command("git", "reset","--hard", s).directory(cloneDirectory.toFile());
             Process processGitWmcAvg = gitWmcAvg.start();
+            processGitWmcAvg.waitFor();
 
-            getFichiers(dirToFile, filesList);
+            getFichiers(cloneDirectory.toFile(), filesList);
 
             ArrayList<Integer> complexityList = new ArrayList<>();
+            ArrayList<Float> bcList = new ArrayList<>();
             for (File f : filesList) {
-                complexityList.add(getWmc(f.getAbsolutePath()));
+                if (!f.getAbsolutePath().isEmpty()) {
+                    int wmc = getWmc(f.getAbsolutePath());
+                    int cloc = getCloc(f.getAbsolutePath());
+                    int loc = getLoc(f.getAbsolutePath());
+
+                    if (wmc != 0 && loc != 0 && cloc != 0) {
+                        float dc = (float) cloc / loc;
+                        bcList.add(dc/wmc);
+                    }
+                    if (wmc != 0) {
+                        complexityList.add(wmc);
+                    }
+                }
             }
 
             float average = 0;
@@ -131,34 +137,12 @@ public class Metric {
                 average += i;
             }
             avgWmcList.add(average / complexityList.size());
-            processGitWmcAvg.destroy();
-        }
-    }
-
-    public void getBcAverage(ArrayList<Float> avgBcList, ArrayList<String> idVersionList) throws IOException {
-        // Compte nombre de classe par commit
-        File[] files = directory.toFile().listFiles();
-        Path cloneDirectory = files[0].toPath();
-        ArrayList<File> filesList = new ArrayList<>();
-        for (String s : idVersionList) {
-            ProcessBuilder gitReset = new ProcessBuilder().command("git", "reset","--HARD", s).directory(cloneDirectory.toFile());
-            Process processGitReset = gitReset.start();
-
-            getFichiers(dirToFile, filesList);
-
-            ArrayList<Float> bcList = new ArrayList<>();
-            for (File f : filesList) {
-                float dc = (float) getCloc(f.getAbsolutePath()) / getLoc(f.getAbsolutePath());
-                float wmc = (float) getWmc(f.getAbsolutePath());
-                bcList.add(dc/wmc);
-            }
-
-            float average = 0;
+            average = 0;
             for (float i : bcList) {
                 average += i;
             }
             avgBcList.add(average / bcList.size());
-            processGitReset.destroy();
+            processGitWmcAvg.destroy();
         }
     }
 
@@ -237,7 +221,6 @@ public class Metric {
             }
             br.close();
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
             return 0;
         } catch (IOException e) {
             e.printStackTrace();
@@ -275,7 +258,8 @@ public class Metric {
             }
             br.close();
         } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            return 0;
+        } catch (NoSuchFileException e) {
             return 0;
         } catch (IOException e) {
             e.printStackTrace();
@@ -300,6 +284,10 @@ public class Metric {
             Stream<String> stream = Files.lines(pathChemin, StandardCharsets.ISO_8859_1);
             nombreLignesCode += stream.count();
             stream.close();
+        } catch (FileNotFoundException e) {
+            return 0;
+        } catch (NoSuchFileException e) {
+            return 0;
         } catch (IOException e) {
             e.printStackTrace();
             return 0;
